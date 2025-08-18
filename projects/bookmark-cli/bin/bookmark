@@ -1,0 +1,62 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'optparse'
+require_relative '../infra/file/file_bookmark_repo'
+require_relative '../app/dto/add_bookmark_input'
+require_relative '../app/dto/list_bookmarks_input'
+require_relative '../app/use_cases/add_bookmark'
+require_relative '../app/use_cases/list_bookmarks'
+require_relative '../app/use_cases/delete_bookmark'
+require_relative '../app/use_cases/toggle_favorite'
+require_relative '../lib/errors'
+
+repo_path = ENV['BOOKMARK_PATH'] || 'bookmarks.json'
+repo = FileBookmarkRepo.new(repo_path)
+
+command = ARGV.shift
+
+begin
+  case command
+  when 'add'
+    url = ARGV.shift
+    title = ARGV.shift || ''
+    input = AddBookmarkInput.new(url: url, title: title)
+    bookmark = AddBookmark.new(repo).call(input)
+    puts bookmark.id
+  when 'list'
+    options = { fav: false, sort: 'created_at' }
+    OptionParser.new do |opts|
+      opts.on('--fav') { options[:fav] = true }
+      opts.on('--sort=VAL') { |v| options[:sort] = v }
+    end.parse!(ARGV)
+    input = ListBookmarksInput.new(fav: options[:fav], sort: options[:sort])
+    bookmarks = ListBookmarks.new(repo).call(input)
+    bookmarks.each do |b|
+      star = b.favorite ? '★' : ' '
+      date = b.created_at.strftime('%Y-%m-%d')
+      puts "[#{b.id}] #{star} #{b.url} - #{b.title} (#{date})"
+    end
+  when 'delete'
+    id = ARGV.shift.to_i
+    DeleteBookmark.new(repo).call(id)
+    puts "Deleted #{id}"
+  when 'fav'
+    id = ARGV.shift.to_i
+    ToggleFavorite.new(repo).call(id, true)
+    puts "Favorited #{id}"
+  when 'unfav'
+    id = ARGV.shift.to_i
+    ToggleFavorite.new(repo).call(id, false)
+    puts "Unfavorited #{id}"
+  else
+    warn 'Unknown command'
+    exit 1
+  end
+rescue Errors::InvalidInput, Errors::NotFound => e
+  warn e.message
+  exit 1
+rescue Errors::StorageError, StandardError => e
+  warn e.message
+  exit 2
+end
